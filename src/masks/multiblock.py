@@ -29,10 +29,11 @@ class MaskCollator(object):
         nenc=1,
         npred=2,
         min_keep=4,
-        allow_overlap=False
+        allow_overlap=False,
+        other_collate=torch.utils.data.default_collate
     ):
         super(MaskCollator, self).__init__()
-        if not isinstance(input_size, tuple):
+        if not isinstance(input_size, tuple) and not isinstance(input_size, list):
             input_size = (input_size, ) * 2
         self.patch_size = patch_size
         self.height, self.width = input_size[0] // patch_size, input_size[1] // patch_size
@@ -44,6 +45,7 @@ class MaskCollator(object):
         self.min_keep = min_keep  # minimum number of patches to keep
         self.allow_overlap = allow_overlap  # whether to allow overlap b/w enc and pred masks
         self._itr_counter = Value('i', -1)  # collator is shared across worker processes
+        self.other_collate = other_collate
 
     def step(self):
         i = self._itr_counter
@@ -120,7 +122,7 @@ class MaskCollator(object):
         '''
         B = len(batch)
 
-        collated_batch = torch.utils.data.default_collate(batch)
+        collated_batch = self.other_collate(batch)
 
         seed = self.step()
         g = torch.Generator()

@@ -21,6 +21,7 @@ import copy
 import logging
 import sys
 import yaml
+import wandb
 
 import numpy as np
 
@@ -41,17 +42,16 @@ from src.utils.logging import (
     grad_logger,
     AverageMeter)
 from src.utils.tensors import repeat_interleave_batch
-from src.datasets.imagenet1k import make_imagenet1k
+from src.datasets.voxceleb2 import make_voxceleb2, mel_collate_fn
 
 from src.helper import (
     load_checkpoint,
     init_model,
     init_opt)
-from src.transforms import make_transforms
 
 # --
 log_timings = True
-log_freq = 10
+log_freq = 1000
 checkpoint_freq = 50
 # --
 
@@ -75,7 +75,6 @@ def main(args, resume_preempt=False):
     model_name = args['meta']['model_name']
     load_model = args['meta']['load_checkpoint'] or resume_preempt
     r_file = args['meta']['read_checkpoint']
-    copy_data = args['meta']['copy_data']
     pred_depth = args['meta']['pred_depth']
     pred_emb_dim = args['meta']['pred_emb_dim']
     if not torch.cuda.is_available():
@@ -84,19 +83,11 @@ def main(args, resume_preempt=False):
         device = torch.device('cuda:0')
         torch.cuda.set_device(device)
 
-    # -- DATA
-    use_gaussian_blur = args['data']['use_gaussian_blur']
-    use_horizontal_flip = args['data']['use_horizontal_flip']
-    use_color_distortion = args['data']['use_color_distortion']
-    color_jitter = args['data']['color_jitter_strength']
     # --
     batch_size = args['data']['batch_size']
     pin_mem = args['data']['pin_mem']
     num_workers = args['data']['num_workers']
-    root_path = args['data']['root_path']
-    image_folder = args['data']['image_folder']
     crop_size = args['data']['crop_size']
-    crop_scale = args['data']['crop_scale']
     # --
 
     # -- MASK
@@ -178,29 +169,18 @@ def main(args, resume_preempt=False):
         nenc=num_enc_masks,
         npred=num_pred_masks,
         allow_overlap=allow_overlap,
-        min_keep=min_keep)
-
-    transform = make_transforms(
-        crop_size=crop_size,
-        crop_scale=crop_scale,
-        gaussian_blur=use_gaussian_blur,
-        horizontal_flip=use_horizontal_flip,
-        color_distortion=use_color_distortion,
-        color_jitter=color_jitter)
+        min_keep=min_keep,
+        other_collate=mel_collate_fn)
 
     # -- init data-loaders/samplers
-    _, unsupervised_loader, unsupervised_sampler = make_imagenet1k(
-            transform=transform,
+    _, unsupervised_loader, unsupervised_sampler = make_voxceleb2(
             batch_size=batch_size,
-            collator=mask_collator,
+            mask_collator_fn=mask_collator,
             pin_mem=pin_mem,
-            training=True,
             num_workers=num_workers,
             world_size=world_size,
             rank=rank,
-            root_path=root_path,
-            image_folder=image_folder,
-            copy_data=copy_data,
+            split="train",
             drop_last=True)
     ipe = len(unsupervised_loader)
 
@@ -279,7 +259,7 @@ def main(args, resume_preempt=False):
 
             def load_imgs():
                 # -- unsupervised imgs
-                imgs = udata[0].to(device, non_blocking=True)
+                imgs = udata["mel"].to(device, non_blocking=True)
                 masks_1 = [u.to(device, non_blocking=True) for u in masks_enc]
                 masks_2 = [u.to(device, non_blocking=True) for u in masks_pred]
                 return (imgs, masks_1, masks_2)
@@ -313,7 +293,7 @@ def main(args, resume_preempt=False):
                     return loss
 
                 # Step 1. Forward
-                with torch.cuda.amp.autocast(dtype=torch.bfloat16, enabled=use_bfloat16):
+                with torch.amp.autocast("cuda", dtype=torch.bfloat16, enabled=use_bfloat16):
                     h = forward_target()
                     z = forward_context()
                     loss = loss_fn(z, h)
@@ -373,6 +353,15 @@ def main(args, resume_preempt=False):
         # -- Save Checkpoint after every epoch
         logger.info('avg. loss %.3f' % loss_meter.avg)
         save_checkpoint(epoch+1)
+        if rank == 0:
+            wandb.log({
+                'epoch': epoch,
+                'loss': loss_meter.avg,
+                'maskA': maskA_meter.avg,
+                'maskB': maskB_meter.avg,
+                'lr': _new_lr,
+                'wd': _new_wd
+            })
 
 
 if __name__ == "__main__":

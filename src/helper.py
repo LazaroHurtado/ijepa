@@ -74,10 +74,11 @@ def init_model(
     pred_emb_dim=384
 ):
     encoder = vit.__dict__[model_name](
-        img_size=[crop_size],
+        img_size=crop_size,
         patch_size=patch_size)
     predictor = vit.__dict__['vit_predictor'](
-        num_patches=encoder.patch_embed.num_patches,
+        num_patches=[encoder.patch_embed.num_patches_h,
+                     encoder.patch_embed.num_patches_w],
         embed_dim=encoder.embed_dim,
         predictor_embed_dim=pred_emb_dim,
         depth=pred_depth,
@@ -152,5 +153,5 @@ def init_opt(
         ref_wd=wd,
         final_wd=final_wd,
         T_max=int(ipe_scale*num_epochs*iterations_per_epoch))
-    scaler = torch.cuda.amp.GradScaler() if use_bfloat16 else None
+    scaler = torch.amp.GradScaler("cuda") if use_bfloat16 else None
     return optimizer, scaler, scheduler, wd_scheduler

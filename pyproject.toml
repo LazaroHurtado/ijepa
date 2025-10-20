@@ -1,0 +1,23 @@
+[project]
+name = "ijepa"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "datasets>=4.2.0",
+    "numpy<2.0",
+    "pyyaml>=6.0.3",
+    "torch>=2.9.0",
+    "torchaudio>=2.9.0",
+    "torchcodec>=0.8.0",
+    "torchvision>=0.24.0",
+    "wandb>=0.22.2",
+]
+
+[[tool.uv.index]]
+url = "https://pypi.org/simple"
+
+[[tool.uv.index]]
+url = "https://download.pytorch.org/whl/cu126"
+default = true

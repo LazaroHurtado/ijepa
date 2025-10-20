@@ -11,8 +11,10 @@ import multiprocessing as mp
 
 import pprint
 import yaml
+import wandb
 
 from src.utils.distributed import init_distributed
+from torch.distributed import destroy_process_group
 from src.train import main as app_main
 
 parser = argparse.ArgumentParser()
@@ -47,10 +49,19 @@ def process_main(rank, fname, world_size, devices):
         pp = pprint.PrettyPrinter(indent=4)
         pp.pprint(params)
 
+    if rank == 0:
+        wandb.init(
+            project='ijepa',
+            config=params,
+        )
+
     world_size, rank = init_distributed(rank_and_world_size=(rank, world_size))
     logger.info(f'Running... (rank: {rank}/{world_size})')
     app_main(args=params)
 
+    destroy_process_group()
+    if rank == 0:
+        wandb.finish()
 
 if __name__ == '__main__':
     args = parser.parse_args()

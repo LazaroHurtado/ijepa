@@ -1,3 +1,5 @@
 *.swp
 *.swo
 __pycache__
+wandb/
+voxceleb2_vith16-448_ep300/
