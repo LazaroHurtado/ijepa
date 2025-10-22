@@ -39,9 +39,11 @@ def make_voxceleb2(
     dist_sampler = DistributedSampler(
         dataset=dataset,
         num_replicas=world_size,
+        shuffle=(split=="train"),
         rank=rank)
     data_loader = DataLoader(
         dataset,
+        shuffle=False,
         collate_fn=mask_collator_fn,
         sampler=dist_sampler,
         batch_size=batch_size,
@@ -64,14 +66,21 @@ class VoxCeleb(Dataset):
         f_min: float = 0.0,
         f_max: Optional[float] = None,
         crop_timesteps: int = 96,
-        audio_col: str = "audio_path",
-        transcription_col: str = "transcription",
-        speaker_col: str = "speaker_id",
-        gender_col: str = "gender",
         split: str = "train",
     ):
         super().__init__()
-        self.ds = load_dataset("acul3/voxceleb2", data_dir="data/", num_proc=8)[split]
+        ds = load_dataset("acul3/voxceleb2", data_dir="data/", num_proc=6)["train"]
+        ds = ds.remove_columns(["transcription", "gender"])
+        
+        if split in ["train", "validation", "test"]:
+            split = ds.train_test_split(test_size=0.1, seed=42)
+            if split == "train":
+                self.ds = split["train"]
+            else:
+                self.ds = split["test"]
+        elif split == "all":
+            self.ds = ds
+
         self.sample_rate = sample_rate
         self.n_fft = n_fft
         self.hop_length = hop_length
@@ -79,10 +88,6 @@ class VoxCeleb(Dataset):
         self.f_min = f_min
         self.f_max = f_max or (self.sample_rate / 2.0)
         self.crop_timesteps = crop_timesteps
-        self.audio_col = audio_col
-        self.transcription_col = transcription_col
-        self.speaker_col = speaker_col
-        self.gender_col = gender_col
 
         # Mel + log transform
         self.mel_transform = T.MelSpectrogram(
@@ -95,6 +100,9 @@ class VoxCeleb(Dataset):
             power=2.0)
         self.db_transform = T.AmplitudeToDB(top_db=80.0)
 
+        all_speaker_ids = self.ds["speaker_id"]
+        self.id2idx, self.num_speakers = self.build_one_hot_map(all_speaker_ids)
+
     def __len__(self) -> int:
         return len(self.ds)
 
@@ -102,7 +110,7 @@ class VoxCeleb(Dataset):
         item = self.ds[idx]
 
         # Decode audio_path column (should be AudioDecoder or similar)
-        audio_decoder = item[self.audio_col]
+        audio_decoder = item["audio_path"]
         # audio_decoder is e.g. a TorchCodec AudioDecoder object
         waveform, sr = audio_decoder.get_all_samples().data, audio_decoder.get_all_samples().sample_rate
         # If waveform is numpy, convert to tensor
@@ -131,33 +139,30 @@ class VoxCeleb(Dataset):
             pad_amount = self.crop_timesteps - T_frames
             log_mel = F.pad(log_mel, (0, pad_amount), mode='constant', value=0.0)
             T_frames = self.crop_timesteps
-
-        # Random crop of length crop_timesteps
+        
         start = random.randint(0, T_frames - self.crop_timesteps)
-        mel_crop = log_mel[:, start:start + self.crop_timesteps].unsqueeze(0)  # shape: (1, n_mels, crop_timesteps)
+        log_mel = log_mel[:, start:start + self.crop_timesteps]  # shape: (n_mels, crop_timesteps)
 
-        speaker_id = int(item[self.speaker_col].replace("id", ""))
-        gender = item[self.gender_col]
-        transcription = item[self.transcription_col]
+        speaker_id = self.id2idx[item["speaker_id"]]
 
         return {
-            "mel": mel_crop,                  # Tensor (n_mels, crop_timesteps)
-            "speaker_id": torch.tensor(speaker_id, dtype=torch.long),  # Tensor scalar
-            "gender": gender,                # leave as string or convert to tensor if encoded
-            "transcription": transcription   # leave as string
+            "mel": log_mel.unsqueeze(0),
+            "speaker_id": speaker_id,
         }
-
+    
+    def build_one_hot_map(self, speaker_id_list):
+        unique_ids = set(speaker_id_list)
+        id2idx = {spid: idx for idx, spid in enumerate(unique_ids)}
+        num_classes = len(unique_ids)
+        return id2idx, num_classes
+    
 
 def mel_collate_fn(batch: List[Dict[str, torch.Tensor]]):
-    mels = torch.stack([b["mel"] for b in batch], dim=0)              # (B, n_mels, crop_timesteps)
-    speaker_ids = torch.stack([b["speaker_id"] for b in batch], dim=0)  # (B,)
-    genders = [b["gender"] for b in batch]
-    transcriptions = [b["transcription"] for b in batch]
+    mels = torch.stack([b["mel"] for b in batch], dim=0)
+    speaker_ids = torch.tensor([b["speaker_id"] for b in batch], dtype=torch.long)
 
     collated = {
         "mel": mels,
         "speaker_id": speaker_ids,
-        "gender": genders,
-        "transcription": transcriptions
     }
     return collated

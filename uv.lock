@@ -615,10 +615,12 @@ dependencies = [
     { name = "datasets" },
     { name = "numpy" },
     { name = "pyyaml" },
+    { name = "setuptools" },
     { name = "torch" },
     { name = "torchaudio" },
     { name = "torchcodec" },
     { name = "torchvision" },
+    { name = "tqdm" },
     { name = "wandb" },
 ]
 
@@ -627,10 +629,12 @@ requires-dist = [
     { name = "datasets", specifier = ">=4.2.0" },
     { name = "numpy", specifier = "<2.0" },
     { name = "pyyaml", specifier = ">=6.0.3" },
+    { name = "setuptools", specifier = ">=80.9.0" },
     { name = "torch", specifier = ">=2.9.0" },
     { name = "torchaudio", specifier = ">=2.9.0" },
     { name = "torchcodec", specifier = ">=0.8.0" },
     { name = "torchvision", specifier = ">=0.24.0" },
+    { name = "tqdm", specifier = ">=4.67.1" },
     { name = "wandb", specifier = ">=0.22.2" },
 ]
 

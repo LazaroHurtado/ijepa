@@ -29,6 +29,7 @@ import torch
 import torch.multiprocessing as mp
 import torch.nn.functional as F
 from torch.nn.parallel import DistributedDataParallel
+from tqdm import tqdm
 
 from src.masks.multiblock import MaskCollator as MBMaskCollator
 from src.masks.utils import apply_masks
@@ -51,7 +52,7 @@ from src.helper import (
 
 # --
 log_timings = True
-log_freq = 1000
+log_freq = 10
 checkpoint_freq = 50
 # --
 
@@ -111,6 +112,7 @@ def main(args, resume_preempt=False):
     start_lr = args['optimization']['start_lr']
     lr = args['optimization']['lr']
     final_lr = args['optimization']['final_lr']
+    gradient_accum_steps = args['optimization']['gradient_accumulation_steps']
 
     # -- LOGGING
     folder = args['logging']['folder']
@@ -158,6 +160,9 @@ def main(args, resume_preempt=False):
         pred_emb_dim=pred_emb_dim,
         model_name=model_name)
     target_encoder = copy.deepcopy(encoder)
+    encoder = torch.compile(encoder)
+    predictor = torch.compile(predictor, mode='default', dynamic=True)
+    target_encoder = torch.compile(target_encoder)
 
     # -- make data transforms
     mask_collator = MBMaskCollator(
@@ -255,6 +260,8 @@ def main(args, resume_preempt=False):
         maskB_meter = AverageMeter()
         time_meter = AverageMeter()
 
+        if rank == 0:
+            pbar = tqdm(total=len(unsupervised_loader), desc=f"Epoch {epoch + 1}")
         for itr, (udata, masks_enc, masks_pred) in enumerate(unsupervised_loader):
 
             def load_imgs():
@@ -290,6 +297,7 @@ def main(args, resume_preempt=False):
                 def loss_fn(z, h):
                     loss = F.smooth_l1_loss(z, h)
                     loss = AllReduce.apply(loss)
+                    loss = loss / gradient_accum_steps
                     return loss
 
                 # Step 1. Forward
@@ -298,16 +306,12 @@ def main(args, resume_preempt=False):
                     z = forward_context()
                     loss = loss_fn(z, h)
 
-                #  Step 2. Backward & step
+                # Step 2. Backward
                 if use_bfloat16:
                     scaler.scale(loss).backward()
-                    scaler.step(optimizer)
-                    scaler.update()
                 else:
                     loss.backward()
-                    optimizer.step()
                 grad_stats = grad_logger(encoder.named_parameters())
-                optimizer.zero_grad()
 
                 # Step 3. momentum update of target encoder
                 with torch.no_grad():
@@ -320,35 +324,32 @@ def main(args, resume_preempt=False):
             loss_meter.update(loss)
             time_meter.update(etime)
 
-            # -- Logging
-            def log_stats():
-                csv_logger.log(epoch + 1, itr, loss, maskA_meter.val, maskB_meter.val, etime)
-                if (itr % log_freq == 0) or np.isnan(loss) or np.isinf(loss):
-                    logger.info('[%d, %5d] loss: %.3f '
-                                'masks: %.1f %.1f '
-                                '[wd: %.2e] [lr: %.2e] '
-                                '[mem: %.2e] '
-                                '(%.1f ms)'
-                                % (epoch + 1, itr,
-                                   loss_meter.avg,
-                                   maskA_meter.avg,
-                                   maskB_meter.avg,
-                                   _new_wd,
-                                   _new_lr,
-                                   torch.cuda.max_memory_allocated() / 1024.**2,
-                                   time_meter.avg))
+            if rank == 0:
+                pbar.set_postfix({
+                    'loss': f'{loss_meter.avg:.3f}',
+                    'maskA': f'{maskA_meter.avg:.1f}',
+                    'maskB': f'{maskB_meter.avg:.1f}',
+                    'lr': f'{_new_lr:.2e}',
+                    'wd': f'{_new_wd:.2e}',
+                    'epoch': f'{epoch + 1}'
+                })
 
-                    if grad_stats is not None:
-                        logger.info('[%d, %5d] grad_stats: [%.2e %.2e] (%.2e, %.2e)'
-                                    % (epoch + 1, itr,
-                                       grad_stats.first_layer,
-                                       grad_stats.last_layer,
-                                       grad_stats.min,
-                                       grad_stats.max))
-
-            log_stats()
+            if (itr + 1) % gradient_accum_steps == 0:
+                # Step 4. Optimizer step after gradient accumulation
+                if use_bfloat16:
+                    scaler.step(optimizer)
+                    scaler.update()
+                else:
+                    optimizer.step()
+                optimizer.zero_grad()
 
             assert not np.isnan(loss), 'loss is nan'
+
+            if rank == 0:
+                pbar.update(gradient_accum_steps)
+        
+        if rank == 0:
+            pbar.close()
 
         # -- Save Checkpoint after every epoch
         logger.info('avg. loss %.3f' % loss_meter.avg)

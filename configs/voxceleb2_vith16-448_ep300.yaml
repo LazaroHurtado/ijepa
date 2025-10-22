@@ -40,3 +40,4 @@ optimization:
   start_lr: 0.0002
   warmup: 40
   weight_decay: 0.04
+  gradient_accumulation_steps: 1

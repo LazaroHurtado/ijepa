@@ -155,3 +155,33 @@ def init_opt(
         T_max=int(ipe_scale*num_epochs*iterations_per_epoch))
     scaler = torch.amp.GradScaler("cuda") if use_bfloat16 else None
     return optimizer, scaler, scheduler, wd_scheduler
+
+def init_simple(
+    model,
+    iterations_per_epoch,
+    start_lr,
+    ref_lr,
+    warmup,
+    num_epochs,
+    wd=1e-6,
+    final_wd=1e-6,
+    final_lr=0.0,
+    use_bfloat16=False,
+    ipe_scale=1.25
+):
+    logger.info('Using AdamW')
+    optimizer = torch.optim.AdamW(model.parameters())
+    scheduler = WarmupCosineSchedule(
+        optimizer,
+        warmup_steps=int(warmup*iterations_per_epoch),
+        start_lr=start_lr,
+        ref_lr=ref_lr,
+        final_lr=final_lr,
+        T_max=int(ipe_scale*num_epochs*iterations_per_epoch))
+    wd_scheduler = CosineWDSchedule(
+        optimizer,
+        ref_wd=wd,
+        final_wd=final_wd,
+        T_max=int(ipe_scale*num_epochs*iterations_per_epoch))
+    scaler = torch.amp.GradScaler("cuda") if use_bfloat16 else None
+    return optimizer, scaler, scheduler, wd_scheduler
