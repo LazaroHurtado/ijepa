@@ -22,7 +22,7 @@ class MaskCollator(object):
     def __init__(
         self,
         input_size=(224, 224),
-        patch_size=16,
+        patch_size=(16,16),
         enc_mask_scale=(0.2, 0.8),
         pred_mask_scale=(0.2, 0.8),
         aspect_ratio=(0.3, 3.0),
@@ -36,7 +36,7 @@ class MaskCollator(object):
         if not isinstance(input_size, tuple) and not isinstance(input_size, list):
             input_size = (input_size, ) * 2
         self.patch_size = patch_size
-        self.height, self.width = input_size[0] // patch_size, input_size[1] // patch_size
+        self.height, self.width = input_size[0] // patch_size[0], input_size[1] // patch_size[1]
         self.enc_mask_scale = enc_mask_scale
         self.pred_mask_scale = pred_mask_scale
         self.aspect_ratio = aspect_ratio
@@ -60,16 +60,20 @@ class MaskCollator(object):
         min_s, max_s = scale
         mask_scale = min_s + _rand * (max_s - min_s)
         max_keep = int(self.height * self.width * mask_scale)
+
+        if self.height == 1:
+            w = max(1, min(max_keep, self.width))
+            return (1, w)
+
         # -- Sample block aspect-ratio
         min_ar, max_ar = aspect_ratio_scale
         aspect_ratio = min_ar + _rand * (max_ar - min_ar)
         # -- Compute block height and width (given scale and aspect-ratio)
         h = int(round(math.sqrt(max_keep * aspect_ratio)))
         w = int(round(math.sqrt(max_keep / aspect_ratio)))
-        while h >= self.height:
-            h -= 1
-        while w >= self.width:
-            w -= 1
+        
+        h = max(1, min(h, self.height))
+        w = max(1, min(w, self.width))
 
         return (h, w)
 
@@ -88,8 +92,16 @@ class MaskCollator(object):
         valid_mask = False
         while not valid_mask:
             # -- Sample block top-left corner
-            top = torch.randint(0, self.height - h, (1,))
-            left = torch.randint(0, self.width - w, (1,))
+            if self.height - h > 0:
+                top = torch.randint(0, self.height - h, (1,))
+            else:
+                top = torch.tensor([0])
+            
+            if self.width - w > 0:
+                left = torch.randint(0, self.width - w, (1,))
+            else:
+                left = torch.tensor([0])
+
             mask = torch.zeros((self.height, self.width), dtype=torch.int32)
             mask[top:top+h, left:left+w] = 1
             # -- Constrain mask to a set of acceptable regions
@@ -103,7 +115,7 @@ class MaskCollator(object):
                 if timeout == 0:
                     tries += 1
                     timeout = og_timeout
-                    logger.warning(f'Mask generator says: "Valid mask not found, decreasing acceptable-regions [{tries}]"')
+                    logger.warning(f'Mask generator says: "Valid mask not found for size {b_size}, decreasing acceptable-regions [{tries}]"')
         mask = mask.squeeze()
         # --
         mask_complement = torch.ones((self.height, self.width), dtype=torch.int32)

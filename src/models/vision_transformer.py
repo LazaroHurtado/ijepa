@@ -174,16 +174,16 @@ class Block(nn.Module):
 class PatchEmbed(nn.Module):
     """ Image to Patch Embedding
     """
-    def __init__(self, img_size=[224, 224], patch_size=16, in_chans=1, embed_dim=768):
+    def __init__(self, img_size=[224, 224], patch_size=(16, 16), in_chans=1, embed_dim=768):
         super().__init__()
-        num_patches = (img_size[0] // patch_size) * (img_size[1] // patch_size)
+        num_patches = (img_size[0] // patch_size[0]) * (img_size[1] // patch_size[1])
         self.img_size = img_size
         self.patch_size = patch_size
         self.num_patches = num_patches
-        self.num_patches_h = img_size[0] // patch_size
-        self.num_patches_w = img_size[1] // patch_size
+        self.num_patches_h = img_size[0] // patch_size[0]
+        self.num_patches_w = img_size[1] // patch_size[1]
 
-        self.proj = nn.Conv2d(in_chans, embed_dim, kernel_size=patch_size, stride=patch_size)
+        self.proj = nn.Conv2d(in_chans, embed_dim, kernel_size=patch_size, stride=(patch_size[0], patch_size[1]))
 
     def forward(self, x):
         B, C, H, W = x.shape
@@ -334,7 +334,7 @@ class VisionTransformer(nn.Module):
     def __init__(
         self,
         img_size=[224, 224],
-        patch_size=16,
+        patch_size=(16,16),
         in_chans=1,
         embed_dim=768,
         predictor_embed_dim=384,
@@ -415,8 +415,8 @@ class VisionTransformer(nn.Module):
         B, N, D = x.shape
 
         # -- add positional embedding to x
-        pos_embed = self.interpolate_pos_encoding(x, self.pos_embed)
-        x = x + pos_embed
+        # pos_embed = self.interpolate_pos_encoding(x, self.pos_embed)
+        x = x + self.pos_embed[:, :N, :]
 
         # -- mask x
         if masks is not None:
@@ -432,20 +432,18 @@ class VisionTransformer(nn.Module):
         return x
 
     def interpolate_pos_encoding(self, x, pos_embed):
-        npatch = x.shape[1] - 1
-        N = pos_embed.shape[1] - 1
+        npatch = x.shape[1]
+        N = pos_embed.shape[1]
         if npatch == N:
             return pos_embed
-        class_emb = pos_embed[:, 0]
-        pos_embed = pos_embed[:, 1:]
         dim = x.shape[-1]
         pos_embed = nn.functional.interpolate(
-            pos_embed.reshape(1, int(math.sqrt(N)), int(math.sqrt(N)), dim).permute(0, 3, 1, 2),
+            pos_embed.reshape(1, self.patch_embed.num_patches_h, self.patch_embed.num_patches_w, dim).permute(0, 3, 1, 2),
             scale_factor=math.sqrt(npatch / N),
             mode='bicubic',
         )
         pos_embed = pos_embed.permute(0, 2, 3, 1).view(1, -1, dim)
-        return torch.cat((class_emb.unsqueeze(0), pos_embed), dim=1)
+        return pos_embed
 
 
 def vit_predictor(**kwargs):
@@ -455,42 +453,42 @@ def vit_predictor(**kwargs):
     return model
 
 
-def vit_tiny(patch_size=16, **kwargs):
+def vit_tiny(patch_size=(16,16), **kwargs):
     model = VisionTransformer(
         patch_size=patch_size, embed_dim=192, depth=12, num_heads=3, mlp_ratio=4,
         qkv_bias=True, norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
     return model
 
 
-def vit_small(patch_size=16, **kwargs):
+def vit_small(patch_size=(16,16), **kwargs):
     model = VisionTransformer(
         patch_size=patch_size, embed_dim=384, depth=12, num_heads=6, mlp_ratio=4,
         qkv_bias=True, norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
     return model
 
 
-def vit_base(patch_size=16, **kwargs):
+def vit_base(patch_size=(16,16), **kwargs):
     model = VisionTransformer(
         patch_size=patch_size, embed_dim=768, depth=12, num_heads=12, mlp_ratio=4,
         qkv_bias=True, norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
     return model
 
 
-def vit_large(patch_size=16, **kwargs):
+def vit_large(patch_size=(16,16), **kwargs):
     model = VisionTransformer(
         patch_size=patch_size, embed_dim=1024, depth=24, num_heads=16, mlp_ratio=4,
         qkv_bias=True, norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
     return model
 
 
-def vit_huge(patch_size=16, **kwargs):
+def vit_huge(patch_size=(16,16), **kwargs):
     model = VisionTransformer(
         patch_size=patch_size, embed_dim=1280, depth=32, num_heads=16, mlp_ratio=4,
         qkv_bias=True, norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
     return model
 
 
-def vit_giant(patch_size=16, **kwargs):
+def vit_giant(patch_size=(16,16), **kwargs):
     model = VisionTransformer(
         patch_size=patch_size, embed_dim=1408, depth=40, num_heads=16, mlp_ratio=48/11,
         qkv_bias=True, norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)

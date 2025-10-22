@@ -142,15 +142,6 @@ def main(args, resume_preempt=False):
     if load_model:
         load_path = os.path.join(folder, r_file) if r_file is not None else latest_path
 
-    # -- make csv_logger
-    csv_logger = CSVLogger(log_file,
-                           ('%d', 'epoch'),
-                           ('%d', 'itr'),
-                           ('%.5f', 'loss'),
-                           ('%.5f', 'mask-A'),
-                           ('%.5f', 'mask-B'),
-                           ('%d', 'time (ms)'))
-
     # -- init model
     encoder, predictor = init_model(
         device=device,

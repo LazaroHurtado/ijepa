@@ -65,7 +65,7 @@ class VoxCeleb(Dataset):
         n_mels: int = 80,
         f_min: float = 0.0,
         f_max: Optional[float] = None,
-        crop_timesteps: int = 96,
+        crop_timesteps: int = 400,
         split: str = "train",
     ):
         super().__init__()
