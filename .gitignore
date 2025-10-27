@@ -3,3 +3,5 @@
 __pycache__
 wandb/
 voxceleb2_vith16-448_ep300/
+**/.ipynb_checkpoints/
+*.arrow

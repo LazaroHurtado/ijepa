@@ -415,7 +415,7 @@ class VisionTransformer(nn.Module):
         B, N, D = x.shape
 
         # -- add positional embedding to x
-        # pos_embed = self.interpolate_pos_encoding(x, self.pos_embed)
+        pos_embed = self.interpolate_pos_encoding(x, self.pos_embed)
         x = x + self.pos_embed[:, :N, :]
 
         # -- mask x
@@ -432,18 +432,20 @@ class VisionTransformer(nn.Module):
         return x
 
     def interpolate_pos_encoding(self, x, pos_embed):
-        npatch = x.shape[1]
-        N = pos_embed.shape[1]
+        npatch = x.shape[1] - 1
+        N = pos_embed.shape[1] - 1
         if npatch == N:
             return pos_embed
+        class_emb = pos_embed[:, 0]
+        pos_embed = pos_embed[:, 1:]
         dim = x.shape[-1]
         pos_embed = nn.functional.interpolate(
-            pos_embed.reshape(1, self.patch_embed.num_patches_h, self.patch_embed.num_patches_w, dim).permute(0, 3, 1, 2),
+            pos_embed.reshape(1, int(math.sqrt(N)), int(math.sqrt(N)), dim).permute(0, 3, 1, 2),
             scale_factor=math.sqrt(npatch / N),
             mode='bicubic',
         )
         pos_embed = pos_embed.permute(0, 2, 3, 1).view(1, -1, dim)
-        return pos_embed
+        return torch.cat((class_emb.unsqueeze(0), pos_embed), dim=1)
 
 
 def vit_predictor(**kwargs):

@@ -1,7 +1,7 @@
 data:
-  batch_size: 16
-  crop_size: [80, 400] # image size
-  num_workers: 10
+  batch_size: 512
+  crop_size: [80, 88] # image size
+  num_workers: 12
   pin_mem: true
 logging:
   folder: ./voxceleb2_vith16-448_ep300
@@ -14,16 +14,16 @@ mask:
   enc_mask_scale:
   - 0.85
   - 1.0
-  min_keep: 2
+  min_keep: 10
   num_enc_masks: 1
   num_pred_masks: 4
-  patch_size: [80, 20]
+  patch_size: [8, 8]
   pred_mask_scale:
   - 0.15
   - 0.2
 meta:
   load_checkpoint: false
-  model_name: vit_tiny
+  model_name: vit_base
   pred_depth: 12
   pred_emb_dim: 384
   read_checkpoint: null
@@ -40,4 +40,4 @@ optimization:
   start_lr: 0.0002
   warmup: 40
   weight_decay: 0.04
-  gradient_accumulation_steps: 1
+  gradient_accumulation_steps: 4

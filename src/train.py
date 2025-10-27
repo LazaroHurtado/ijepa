@@ -141,6 +141,7 @@ def main(args, resume_preempt=False):
     load_path = None
     if load_model:
         load_path = os.path.join(folder, r_file) if r_file is not None else latest_path
+        logger.info(f"Loading from: {load_path}")
 
     # -- init model
     encoder, predictor = init_model(
@@ -170,13 +171,14 @@ def main(args, resume_preempt=False):
 
     # -- init data-loaders/samplers
     _, unsupervised_loader, unsupervised_sampler = make_voxceleb2(
+            crop_timestep=crop_size[1],
             batch_size=batch_size,
             mask_collator_fn=mask_collator,
             pin_mem=pin_mem,
             num_workers=num_workers,
             world_size=world_size,
             rank=rank,
-            split="train",
+            split="all",
             drop_last=True)
     ipe = len(unsupervised_loader)
 
@@ -241,7 +243,6 @@ def main(args, resume_preempt=False):
 
     # -- TRAINING LOOP
     for epoch in range(start_epoch, num_epochs):
-        logger.info('Epoch %d' % (epoch + 1))
 
         # -- update distributed-data-loader epoch
         unsupervised_sampler.set_epoch(epoch)
@@ -254,7 +255,6 @@ def main(args, resume_preempt=False):
         if rank == 0:
             pbar = tqdm(total=len(unsupervised_loader), desc=f"Epoch {epoch + 1}")
         for itr, (udata, masks_enc, masks_pred) in enumerate(unsupervised_loader):
-
             def load_imgs():
                 # -- unsupervised imgs
                 imgs = udata["mel"].to(device, non_blocking=True)
@@ -269,7 +269,6 @@ def main(args, resume_preempt=False):
                 _new_lr = scheduler.step()
                 _new_wd = wd_scheduler.step()
                 # --
-
                 def forward_target():
                     with torch.no_grad():
                         h = target_encoder(imgs)
@@ -337,7 +336,7 @@ def main(args, resume_preempt=False):
             assert not np.isnan(loss), 'loss is nan'
 
             if rank == 0:
-                pbar.update(gradient_accum_steps)
+                pbar.update(1)
         
         if rank == 0:
             pbar.close()
